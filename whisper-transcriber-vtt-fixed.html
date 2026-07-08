@@ -1,0 +1,1431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Transcriber</title>
+<style>
+  :root{
+    --bg:#0f1210;
+    --panel:#171b18;
+    --line:#2a302b;
+    --text:#e8ece6;
+    --dim:#8a938a;
+    --accent:#6fbf73;
+    --accent-dim:#2f4a30;
+    --warn:#d9925c;
+    --rec:#d96c6c;
+    --mono:'SF Mono','JetBrains Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--mono);
+    font-size:14px;
+    line-height:1.5;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    padding:24px 16px 60px;
+  }
+  .wrap{width:100%;max-width:680px;}
+  header{margin-bottom:24px;}
+  h1{
+    font-size:15px;
+    text-transform:uppercase;
+    letter-spacing:0.12em;
+    margin:0 0 4px;
+    color:var(--accent);
+    font-weight:600;
+  }
+  .sub{color:var(--dim);font-size:12px;}
+  .badge{
+    display:inline-block;
+    border:1px solid var(--line);
+    border-radius:3px;
+    padding:1px 6px;
+    font-size:10px;
+    color:var(--dim);
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    margin-left:6px;
+    vertical-align:1px;
+  }
+  .badge.gpu{border-color:var(--accent);color:var(--accent);}
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:16px;
+    margin-bottom:16px;
+  }
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  label{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:0.08em;margin-right:4px;}
+
+  select, button, input[type=file]::file-selector-button{
+    font-family:var(--mono);
+    background:#1e231f;
+    color:var(--text);
+    border:1px solid var(--line);
+    border-radius:3px;
+    padding:8px 12px;
+    font-size:13px;
+    cursor:pointer;
+  }
+  select:hover, button:hover:not(:disabled){border-color:var(--accent);}
+  button:disabled{opacity:0.4;cursor:not-allowed;}
+  button.primary{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);}
+  button.primary:hover:not(:disabled){background:var(--accent);color:#0f1210;}
+  button.rec{border-color:var(--rec);color:var(--rec);}
+  button.rec.live{background:var(--rec);color:#0f1210;}
+
+  input[type=file]{
+    color:var(--dim);
+    font-family:var(--mono);
+    font-size:12px;
+    width:100%;
+  }
+  input[type=checkbox]{accent-color:var(--accent);}
+
+  .drop{
+    border:1px dashed var(--line);
+    border-radius:4px;
+    padding:28px 16px;
+    text-align:center;
+    color:var(--dim);
+    cursor:pointer;
+    transition:border-color .15s, color .15s;
+  }
+  .drop.active{border-color:var(--accent);color:var(--accent);}
+  .drop small{display:block;margin-top:6px;font-size:11px;}
+
+  .status{
+    font-size:12px;
+    color:var(--dim);
+    margin-top:10px;
+    min-height:16px;
+    white-space:pre-wrap;
+  }
+  .status.err{color:var(--warn);}
+  .status.ok{color:var(--accent);}
+
+  .barwrap{
+    height:4px;background:#232823;border-radius:2px;overflow:hidden;margin-top:8px;display:none;
+  }
+  .barwrap.show{display:block;}
+  .bar{height:100%;width:0%;background:var(--accent);transition:width .2s;}
+
+  .meterwrap{
+    height:4px;background:#232823;border-radius:2px;overflow:hidden;flex:1;min-width:80px;
+  }
+  .meter{height:100%;width:0%;background:var(--rec);transition:width .08s linear;}
+
+  textarea{
+    width:100%;
+    min-height:240px;
+    background:#101410;
+    color:var(--text);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:12px;
+    font-family:var(--mono);
+    font-size:13px;
+    line-height:1.6;
+    resize:vertical;
+  }
+  textarea:focus{outline:1px solid var(--accent);}
+
+  .actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+  .meta{font-size:11px;color:var(--dim);margin-top:6px;}
+  .hint{font-size:11px;color:var(--dim);margin-top:8px;}
+  .tsrow{display:flex;gap:6px;align-items:center;margin-top:10px;color:var(--dim);font-size:12px;}
+
+  footer{color:var(--dim);font-size:11px;margin-top:30px;text-align:center;}
+  a{color:var(--accent);}
+
+  ::selection{background:var(--accent-dim);color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Transcriber</h1>
+    <div class="sub">Local Whisper transcription with timestamps, VTT export, and live dictation.<span class="badge" id="engineBadge">engine: —</span></div>
+  </header>
+
+  <div class="panel">
+    <div class="row" style="margin-bottom:12px;">
+      <label for="model">Model</label>
+      <select id="model">
+        <option value="Xenova/whisper-tiny.en">tiny.en — fastest, dictation-friendly</option>
+        <option value="Xenova/whisper-base.en" selected>base.en — balanced default</option>
+        <option value="Xenova/whisper-small.en">small.en — most accurate, highest memory use</option>
+      </select>
+    </div>
+    <div class="row" style="margin-bottom:10px;">
+      <label for="mlmodel">Multilingual</label>
+      <select id="mlmodel">
+        <option value="">— off, use English model above —</option>
+        <option value="Xenova/whisper-tiny">tiny (multilingual)</option>
+        <option value="Xenova/whisper-base">base (multilingual)</option>
+        <option value="Xenova/whisper-small">small (multilingual)</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="mode">Memory mode</label>
+      <select id="mode">
+        <option value="iphone" selected>iPhone safe — recommended on iOS</option>
+        <option value="balanced">Balanced — more context, moderate memory</option>
+        <option value="pro">Pro — desktop / short recordings only</option>
+      </select>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <label for="engine">Engine</label>
+      <select id="engine">
+        <option value="auto" selected>Auto — WebGPU, then WASM on any inference failure</option>
+        <option value="wasm">WASM — slower, most predictable</option>
+        <option value="webgpu">WebGPU preferred — still falls back if inference fails</option>
+      </select>
+    </div>
+    <div class="hint">WebGPU uses a mixed-precision Whisper build to reduce GPU memory. If model loading succeeds but the first inference fails, the app now abandons WebGPU and retries in single-thread WASM instead of recreating the same failing worker.</div>
+  </div>
+
+  <div class="panel">
+    <div class="drop" id="drop">
+      Drop an audio file here, or click to choose
+      <small>.m4a .mp3 .wav .ogg .webm — decoded locally in your browser</small>
+      <input type="file" id="file" style="display:none;">
+    </div>
+    <div class="row" style="margin-top:12px;">
+      <button class="primary" id="run" disabled>Transcribe file</button>
+      <span class="meta" id="filename"></span>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="barwrap" id="barwrap"><div class="bar" id="bar"></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <button class="rec" id="dictate">● Start dictation</button>
+      <div class="meterwrap"><div class="meter" id="meter"></div></div>
+    </div>
+    <div class="hint">Speaks segments as you pause (~0.7s of silence flushes a segment). Use tiny.en or base.en for the lowest lag. Screen stays awake while dictating.</div>
+    <div class="status" id="dictStatus"></div>
+  </div>
+
+  <div class="panel">
+    <div class="tsrow">
+      <input type="checkbox" id="showTs">
+      <label for="showTs" style="margin:0;cursor:pointer;">Show timestamps</label>
+    </div>
+    <textarea id="output" placeholder="Transcript will appear here…" spellcheck="false" style="margin-top:10px;"></textarea>
+    <div class="actions">
+      <button id="copy">Copy</button>
+      <button id="dltxt">Download .txt</button>
+      <button id="dlvtt" disabled>Download .vtt</button>
+      <button id="dlsrt" disabled>Download .srt</button>
+      <button id="restore" disabled>Restore autosave</button>
+      <button id="clear">Clear</button>
+    </div>
+    <div class="meta">.vtt / .srt need timestamped segments (any run in this version produces them). Hand edits in the box apply to .txt only.</div>
+  </div>
+
+  <footer>
+    Model runs via <a href="https://github.com/huggingface/transformers.js" target="_blank" rel="noopener">transformers.js v3.8.1</a> (WebGPU/WASM) after a one-time download. Model reuse depends on the browser cache and available storage.
+  </footer>
+</div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const dropEl = $('drop');
+const fileEl = $('file');
+const statusEl = $('status');
+const dictStatusEl = $('dictStatus');
+const barwrap = $('barwrap');
+const bar = $('bar');
+const meter = $('meter');
+const runBtn = $('run');
+const dictBtn = $('dictate');
+const output = $('output');
+const filenameEl = $('filename');
+const modelSel = $('model');
+const mlSel = $('mlmodel');
+const modeSel = $('mode');
+const engineSel = $('engine');
+const restoreBtn = $('restore');
+const showTsEl = $('showTs');
+const engineBadge = $('engineBadge');
+const dlvttBtn = $('dlvtt');
+const dlsrtBtn = $('dlsrt');
+
+const AUTOSAVE_KEY = 'transcriber:lastTranscript:v3';
+const SAMPLE_RATE = 16000;
+
+let audioBuffer = null;
+let currentFile = null;
+let segments = [];        // [{start, end, text}] absolute seconds — source of truth
+let userEdited = false;   // hand edits in the textarea detach plain-text from segments
+
+// ---------------- Segments, cues, and formats ----------------
+
+function segmentsToPlainText(segs) {
+  let out = '';
+  let prevEnd = null;
+  for (const s of segs) {
+    const t = (s.text || '').trim();
+    if (!t) continue;
+    if (out) out += (prevEnd != null && s.start - prevEnd > 1.4) ? '\n\n' : ' ';
+    out += t;
+    prevEnd = s.end;
+  }
+  return out;
+}
+
+// Group Whisper segments into caption cues at natural breaks: sentence-final
+// punctuation, real pauses, or duration/length caps for readable captions.
+function buildCues(segs) {
+  const cues = [];
+  let cur = null;
+  const MAX_DUR = 7, MAX_CHARS = 110, GAP = 0.8;
+  for (const s of segs) {
+    const t = (s.text || '').trim();
+    if (!t) continue;
+    if (cur && (s.start - cur.end > GAP ||
+                (cur.end - cur.start) >= MAX_DUR ||
+                (cur.text.length + t.length) > MAX_CHARS)) {
+      cues.push(cur); cur = null;
+    }
+    if (!cur) cur = { start: s.start, end: s.end, text: t };
+    else { cur.text += ' ' + t; cur.end = s.end; }
+    if (/[.!?\u2026]["')\]]?$/.test(t)) { cues.push(cur); cur = null; }
+  }
+  if (cur) cues.push(cur);
+  for (const c of cues) {
+    if (!(c.end > c.start)) c.end = c.start + 0.3;
+    if (c.end - c.start < 0.3) c.end = c.start + 0.3;
+  }
+  return cues;
+}
+
+function pad(n, w) { return String(n).padStart(w, '0'); }
+function splitTime(t) {
+  t = Math.max(0, t);
+  let ms = Math.round((t - Math.floor(t)) * 1000);
+  let whole = Math.floor(t);
+  if (ms === 1000) { ms = 0; whole += 1; }
+  return {
+    h: Math.floor(whole / 3600),
+    m: Math.floor((whole % 3600) / 60),
+    s: whole % 60,
+    ms
+  };
+}
+function vttTime(t) { const p = splitTime(t); return pad(p.h,2)+':'+pad(p.m,2)+':'+pad(p.s,2)+'.'+pad(p.ms,3); }
+function srtTime(t) { const p = splitTime(t); return pad(p.h,2)+':'+pad(p.m,2)+':'+pad(p.s,2)+','+pad(p.ms,3); }
+function shortTime(t) {
+  const p = splitTime(t);
+  return (p.h ? pad(p.h,2)+':' : '') + pad(p.m,2)+':'+pad(p.s,2);
+}
+
+function toVTT(segs) {
+  const cues = buildCues(segs);
+  let out = 'WEBVTT\n\n';
+  cues.forEach((c, i) => {
+    out += (i + 1) + '\n' + vttTime(c.start) + ' --> ' + vttTime(c.end) + '\n' + c.text + '\n\n';
+  });
+  return out;
+}
+
+function toSRT(segs) {
+  const cues = buildCues(segs);
+  let out = '';
+  cues.forEach((c, i) => {
+    out += (i + 1) + '\n' + srtTime(c.start) + ' --> ' + srtTime(c.end) + '\n' + c.text + '\n\n';
+  });
+  return out;
+}
+
+function renderOutput() {
+  if (userEdited) return; // don't clobber hand edits
+  if (showTsEl.checked && segments.length) {
+    output.value = buildCues(segments)
+      .map((c) => '[' + shortTime(c.start) + '] ' + c.text)
+      .join('\n');
+  } else {
+    output.value = segmentsToPlainText(segments);
+  }
+  dlvttBtn.disabled = !segments.length;
+  dlsrtBtn.disabled = !segments.length;
+}
+
+showTsEl.addEventListener('change', () => { userEdited = false; renderOutput(); });
+output.addEventListener('input', () => { userEdited = true; });
+
+// ---- Segment merging across overlapping chunks ----
+// Time-first: segments fully covered by already-committed audio are dropped.
+// The one segment straddling the seam gets duplicated leading words trimmed
+// against the committed tail (Whisper timestamps are good, not perfect).
+
+function normalizeWords(text) {
+  return (text || '')
+    .toLowerCase()
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2019]/g, "'")
+    .replace(/[^a-z0-9' ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+}
+
+function trimLeadingOverlap(prevText, nextText) {
+  const a = normalizeWords(prevText).slice(-20);
+  const b = normalizeWords(nextText).slice(0, 20);
+  let best = 0;
+  const max = Math.min(a.length, b.length, 14);
+  for (let n = max; n >= 2; n--) {
+    if (a.slice(a.length - n).join(' ') === b.slice(0, n).join(' ')) { best = n; break; }
+  }
+  if (!best) return (nextText || '').trim();
+  const raw = (nextText || '').trim().split(/\s+/);
+  return raw.slice(Math.min(best, raw.length)).join(' ');
+}
+
+function tailText(segs, n = 2) {
+  return segs.slice(-n).map((s) => s.text).join(' ');
+}
+
+function mergeSegments(committed, incoming) {
+  for (const seg of incoming) {
+    const t = (seg.text || '').trim();
+    if (!t) continue;
+    if (!committed.length) { committed.push({ start: seg.start, end: seg.end, text: t }); continue; }
+    const lastEnd = committed[committed.length - 1].end;
+    if (seg.end <= lastEnd + 0.25) continue; // fully inside already-committed audio
+    let text = t;
+    let start = seg.start;
+    if (seg.start < lastEnd - 0.05) {
+      text = trimLeadingOverlap(tailText(committed), t);
+      if (!text) continue;
+      start = Math.max(seg.start, lastEnd);
+    }
+    committed.push({ start, end: Math.max(seg.end, start + 0.05), text });
+  }
+  return committed;
+}
+
+// ---------------- Autosave ----------------
+
+function readAutosave() {
+  try {
+    const raw = sessionStorage.getItem(AUTOSAVE_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    return saved && (saved.segments || saved.text) ? saved : null;
+  } catch (e) { return null; }
+}
+
+function writeAutosave() {
+  if (!segments.length) return;
+  try {
+    sessionStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
+      segments: segments.slice(-4000),
+      file: currentFile ? currentFile.name : '',
+      updatedAt: new Date().toISOString()
+    }));
+    updateRestoreButton();
+  } catch (e) { /* storage may be unavailable/private mode */ }
+}
+
+function clearAutosave() {
+  try { sessionStorage.removeItem(AUTOSAVE_KEY); } catch (e) { /* ignore */ }
+  updateRestoreButton();
+}
+
+function updateRestoreButton() {
+  if (restoreBtn) restoreBtn.disabled = !readAutosave();
+}
+
+// ---------------- Status / progress ----------------
+
+function setStatus(msg, cls) {
+  statusEl.textContent = msg;
+  statusEl.className = 'status' + (cls ? ' ' + cls : '');
+}
+function setDictStatus(msg, cls) {
+  dictStatusEl.textContent = msg;
+  dictStatusEl.className = 'status' + (cls ? ' ' + cls : '');
+}
+function setProgress(pct) {
+  if (pct == null) { barwrap.classList.remove('show'); return; }
+  barwrap.classList.add('show');
+  bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+}
+
+// ---------------- File intake / decode ----------------
+
+dropEl.addEventListener('click', () => fileEl.click());
+dropEl.addEventListener('dragover', (e) => { e.preventDefault(); dropEl.classList.add('active'); });
+dropEl.addEventListener('dragleave', () => dropEl.classList.remove('active'));
+dropEl.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropEl.classList.remove('active');
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileEl.addEventListener('change', (e) => {
+  if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+async function handleFile(file) {
+  currentFile = file;
+  filenameEl.textContent = file.name + ' (' + (file.size / 1024 / 1024).toFixed(1) + ' MB)';
+  setStatus('Decoding audio…');
+  runBtn.disabled = true;
+  try {
+    audioBuffer = await decodeAudio(file);
+    setStatus(`Decoded: ${audioBuffer.length} samples @ 16kHz mono (${(audioBuffer.length / 16000).toFixed(1)}s)`, 'ok');
+    runBtn.disabled = false;
+  } catch (err) {
+    console.error(err);
+    setStatus('Could not decode this file: ' + err.message, 'err');
+  }
+}
+
+async function decodeAudio(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AudioCtx();
+  const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+  const targetRate = 16000;
+
+  if (decoded.sampleRate === targetRate && decoded.numberOfChannels === 1) {
+    ctx.close();
+    return decoded.getChannelData(0).slice();
+  }
+
+  const offlineCtx = new OfflineAudioContext(1, Math.ceil(decoded.duration * targetRate), targetRate);
+  const src = offlineCtx.createBufferSource();
+  src.buffer = decoded;
+  src.connect(offlineCtx.destination);
+  src.start(0);
+  const rendered = await offlineCtx.startRendering();
+  ctx.close();
+  return rendered.getChannelData(0).slice();
+}
+
+function currentModelId() {
+  return mlSel.value ? mlSel.value : modelSel.value;
+}
+
+// ---------------- Worker (transformers.js v3, WebGPU with WASM fallback) ----
+// WASM linear memory only ever grows within a worker's lifetime, so the worker
+// is still recycled on a cadence to hand memory back to iOS. On WebGPU the
+// per-chunk heap pressure is far lower, so the cadence stretches automatically.
+
+const workerCode = `
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js';
+env.allowLocalModels = false;
+env.useBrowserCache = true;
+if (env.backends && env.backends.onnx && env.backends.onnx.wasm) {
+  env.backends.onnx.wasm.numThreads = 1;
+}
+let transcriber = null;
+let device = 'wasm';
+let variant = 'q8';
+
+function describeError(err) {
+  if (!err) return { message: 'Unknown worker error', name: 'Error', stack: '' };
+  return {
+    message: String(err.message || err),
+    name: String(err.name || 'Error'),
+    stack: String(err.stack || '')
+  };
+}
+
+async function loadModel(modelId, progress, requestedDevice = 'auto') {
+  const canTryWebGPU = requestedDevice !== 'wasm' &&
+    typeof navigator !== 'undefined' && !!navigator.gpu;
+
+  if (canTryWebGPU) {
+    try {
+      // Whisper is an encoder/decoder model. Loading every session as fp32 is
+      // needlessly large on iPhone. This is the mixed dtype used by the
+      // Transformers.js Whisper WebGPU examples: accurate encoder, q4 decoder.
+      transcriber = await pipeline('automatic-speech-recognition', modelId, {
+        device: 'webgpu',
+        dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' },
+        progress_callback: progress
+      });
+      device = 'webgpu';
+      variant = 'encoder fp32 / decoder q4';
+      return;
+    } catch (err) {
+      transcriber = null;
+      if (requestedDevice === 'webgpu') {
+        // Even a preferred WebGPU request should remain usable: report the
+        // failure and continue into WASM rather than leaving the app dead.
+        console.warn('WebGPU model load failed; falling back to WASM:', err);
+      } else {
+        console.warn('WebGPU model load failed; falling back to WASM:', err);
+      }
+    }
+  }
+
+  transcriber = await pipeline('automatic-speech-recognition', modelId, {
+    device: 'wasm',
+    dtype: 'q8',
+    progress_callback: progress
+  });
+  device = 'wasm';
+  variant = 'q8';
+}
+
+self.onmessage = async (e) => {
+  const { type } = e.data;
+  if (type === 'load') {
+    const { modelId, requestedDevice } = e.data;
+    try {
+      await loadModel(modelId, (p) => {
+        if (p.status === 'progress' && p.total) {
+          self.postMessage({ type: 'progress', pct: (p.loaded / p.total) * 100, file: p.file || '' });
+        }
+      }, requestedDevice || 'auto');
+      self.postMessage({ type: 'loaded', device, variant });
+    } catch (err) {
+      self.postMessage({ type: 'error', stage: 'load', ...describeError(err) });
+    }
+  } else if (type === 'transcribe') {
+    const { audio, opts } = e.data;
+    try {
+      if (!transcriber) throw new Error('Model is not loaded');
+      const result = await transcriber(audio, Object.assign({ return_timestamps: true }, opts || {}));
+      const durationSec = audio.length / 16000;
+      let segs = [];
+      if (result.chunks && result.chunks.length) {
+        segs = result.chunks.map((c) => ({
+          start: (c.timestamp && c.timestamp[0] != null) ? c.timestamp[0] : 0,
+          end: (c.timestamp && c.timestamp[1] != null) ? c.timestamp[1] : durationSec,
+          text: (c.text || '').trim()
+        })).filter((s) => s.text);
+      } else if (result.text && result.text.trim()) {
+        segs = [{ start: 0, end: durationSec, text: result.text.trim() }];
+      }
+      self.postMessage({ type: 'result', segments: segs, device });
+    } catch (err) {
+      self.postMessage({ type: 'error', stage: 'inference', device, ...describeError(err) });
+    }
+  }
+};
+`
+
+let worker = null;
+let workerModelId = null;
+let workerDevice = 'wasm';
+let workerVariant = 'q8';
+let workerRequestedDevice = null;
+const webgpuFailedModels = new Set();
+let chunksSinceRestart = 0;
+
+function spawnWorker() {
+  const blob = new Blob([workerCode], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  return new Worker(url, { type: 'module' });
+}
+
+function requestedEngine(modelId) {
+  const pref = engineSel ? engineSel.value : 'auto';
+  if (pref === 'wasm') return 'wasm';
+  if (webgpuFailedModels.has(modelId)) return 'wasm';
+  return pref; // auto or webgpu
+}
+
+function loadModelInWorker(modelId, requestedDevice = requestedEngine(modelId)) {
+  return new Promise((resolve, reject) => {
+    const handler = (e) => {
+      const d = e.data;
+      if (d.type === 'progress') {
+        setProgress(d.pct);
+        setStatus(`Downloading ${modelId}: ${d.file} ${d.pct.toFixed(0)}%`);
+      } else if (d.type === 'loaded') {
+        worker.removeEventListener('message', handler);
+        setProgress(null);
+        workerDevice = d.device || 'wasm';
+        workerVariant = d.variant || '';
+        workerRequestedDevice = requestedDevice;
+        engineBadge.textContent = 'engine: ' + (workerDevice === 'webgpu' ? 'WebGPU' : 'WASM');
+        engineBadge.title = workerVariant;
+        engineBadge.className = 'badge' + (workerDevice === 'webgpu' ? ' gpu' : '');
+        resolve();
+      } else if (d.type === 'error') {
+        worker.removeEventListener('message', handler);
+        const detail = [d.stage, d.name, d.message].filter(Boolean).join(': ');
+        reject(new Error(detail || 'Worker model load failed'));
+      }
+    };
+    worker.addEventListener('message', handler);
+    worker.postMessage({ type: 'load', modelId, requestedDevice });
+  });
+}
+
+// Returns segments [{start,end,text}] relative to the start of the slice.
+function transcribeChunkInWorker(audioSlice, opts, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      worker.removeEventListener('message', messageHandler);
+      worker.removeEventListener('error', workerErrorHandler);
+      worker.removeEventListener('messageerror', messageErrorHandler);
+    };
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+    const timer = setTimeout(() => {
+      fail(new Error(`timed out after ${Math.round(timeoutMs / 1000)}s on ${workerDevice}`));
+    }, timeoutMs);
+    const messageHandler = (e) => {
+      const d = e.data;
+      if (d.type === 'result') {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        chunksSinceRestart++;
+        resolve(d.segments || []);
+      } else if (d.type === 'error') {
+        const detail = [d.stage, d.device, d.name, d.message].filter(Boolean).join(': ');
+        fail(new Error(detail || 'Worker inference failed'));
+      }
+    };
+    const workerErrorHandler = (e) => {
+      fail(new Error(`worker crashed on ${workerDevice}: ${e.message || 'unknown error'}`));
+    };
+    const messageErrorHandler = () => {
+      fail(new Error(`worker message deserialization failed on ${workerDevice}`));
+    };
+
+    worker.addEventListener('message', messageHandler);
+    worker.addEventListener('error', workerErrorHandler);
+    worker.addEventListener('messageerror', messageErrorHandler);
+
+    const copy = Float32Array.from(audioSlice);
+    worker.postMessage({ type: 'transcribe', audio: copy, opts }, [copy.buffer]);
+  });
+}
+
+// Runtime policy balances accuracy against iPhone/Safari WASM memory pressure.
+function runtimePolicy(modelId) {
+  const mode = modeSel.value || 'pro';
+  const isSmall = modelId.includes('small');
+  const isBase = modelId.includes('base');
+  let chunkSeconds = isSmall ? 10 : isBase ? 16 : 22;
+  let overlapSeconds = isSmall ? 1.5 : isBase ? 2.5 : 3;
+  let cadence = isSmall ? 2 : isBase ? 4 : 7;
+  let maxDictSeconds = 8;
+
+  if (mode === 'balanced') {
+    chunkSeconds = isSmall ? 12 : isBase ? 20 : 26;
+    overlapSeconds = isSmall ? 2 : isBase ? 3 : 3.5;
+    cadence = isSmall ? 3 : isBase ? 6 : 10;
+    maxDictSeconds = 10;
+  } else if (mode === 'pro') {
+    // iPhone 16 Pro (A18 Pro, 8GB) / desktop: bigger chunks give Whisper more
+    // context per pass, which is the single largest accuracy lever available.
+    chunkSeconds = isSmall ? 22 : isBase ? 28 : 30;
+    overlapSeconds = isSmall ? 3 : isBase ? 4 : 4;
+    cadence = isSmall ? 6 : isBase ? 12 : 16;
+    maxDictSeconds = 14;
+  }
+
+  // WebGPU keeps activations off the WASM heap; recycle far less often.
+  if (workerDevice === 'webgpu') cadence *= 4;
+
+  return {
+    mode,
+    chunkSeconds,
+    overlapSeconds,
+    cadence,
+    maxDictSeconds,
+    minChunkSeconds: isSmall ? 5 : isBase ? 7 : 8,
+    silenceRmsThreshold: 0.0005,
+    maxRetries: 2
+  };
+}
+
+function timeoutMsForModel(modelId, chunkSeconds) {
+  const perSecond = modelId.includes('small') ? 6500 : modelId.includes('base') ? 4000 : 2800;
+  const scaled = workerDevice === 'webgpu' ? perSecond / 3 : perSecond;
+  return chunkSeconds * scaled + 25000;
+}
+
+async function ensureWorkerModel(modelId) {
+  const requested = requestedEngine(modelId);
+  if (worker && workerModelId === modelId && workerRequestedDevice === requested) return;
+  if (worker) worker.terminate();
+  setStatus(`Loading model ${modelId} (${requested})…`);
+  worker = spawnWorker();
+  await loadModelInWorker(modelId, requested);
+  workerModelId = modelId;
+  chunksSinceRestart = 0;
+}
+
+async function recycleWorker(modelId, requested = requestedEngine(modelId)) {
+  try { if (worker) worker.terminate(); } catch (e) { /* ignore */ }
+  worker = spawnWorker();
+  await loadModelInWorker(modelId, requested);
+  workerModelId = modelId;
+  chunksSinceRestart = 0;
+}
+
+// ---------------- Audio analysis helpers ----------------
+
+function blockRms(audio, start, end) {
+  let sum = 0;
+  const n = Math.max(1, end - start);
+  for (let i = start; i < end; i++) sum += audio[i] * audio[i];
+  return Math.sqrt(sum / n);
+}
+
+function isMostlySilence(audio, start, end, threshold) {
+  const len = end - start;
+  if (len < SAMPLE_RATE * 0.75) return false;
+  let sum = 0;
+  let peak = 0;
+  for (let i = start; i < end; i++) {
+    const v = Math.abs(audio[i]);
+    sum += v * v;
+    if (v > peak) peak = v;
+  }
+  const rms = Math.sqrt(sum / Math.max(1, len));
+  // Only skip near-digital silence. A coarse RMS-only gate at 0.0035 can
+  // classify genuinely quiet speech as silence and produce an empty transcript.
+  return rms < threshold && peak < threshold * 6;
+}
+
+function findQuietBoundary(audio, targetIndex, searchRadiusSamples) {
+  const start = Math.max(0, targetIndex - searchRadiusSamples);
+  const end = Math.min(audio.length, targetIndex + searchRadiusSamples);
+  if (end <= start) return targetIndex;
+  const blockSize = 320; // 20ms @ 16kHz
+  let bestIdx = targetIndex;
+  let bestScore = Infinity;
+  for (let i = start; i < end; i += blockSize) {
+    const blockEnd = Math.min(end, i + blockSize);
+    const mid = i + ((blockEnd - i) >> 1);
+    const rms = blockRms(audio, i, blockEnd);
+    const distancePenalty = Math.abs(mid - targetIndex) / searchRadiusSamples * 0.002;
+    const score = rms + distancePenalty;
+    if (score < bestScore) { bestScore = score; bestIdx = mid; }
+  }
+  return bestIdx;
+}
+
+function computeChunkBoundaries(audio, chunkSeconds, overlapSeconds) {
+  const chunkSize = Math.round(chunkSeconds * SAMPLE_RATE);
+  const overlap = Math.round(overlapSeconds * SAMPLE_RATE);
+  const searchRadius = Math.round(1.5 * SAMPLE_RATE);
+  const minChunk = Math.round(1.5 * SAMPLE_RATE);
+  const boundaries = [];
+  let start = 0;
+
+  while (start < audio.length) {
+    const nominalEnd = start + chunkSize;
+    let end;
+    if (nominalEnd >= audio.length) {
+      end = audio.length;
+    } else {
+      end = findQuietBoundary(audio, nominalEnd, searchRadius);
+      if (end <= start + minChunk) end = Math.min(audio.length, nominalEnd);
+    }
+    boundaries.push([start, end]);
+    if (end >= audio.length) break;
+    start = Math.max(end - overlap, start + minChunk);
+  }
+  return boundaries;
+}
+
+// ---------------- File transcription pipeline ----------------
+
+function offsetSegs(segs, offsetSec) {
+  return segs.map((s) => ({ start: s.start + offsetSec, end: s.end + offsetSec, text: s.text }));
+}
+
+async function transcribeSliceRaw(audio, start, end, modelId, opts) {
+  const seconds = Math.max(1, (end - start) / SAMPLE_RATE);
+  const timeoutMs = timeoutMsForModel(modelId, seconds);
+  const slice = audio.subarray(start, end);
+  const segs = await transcribeChunkInWorker(slice, opts, timeoutMs);
+  return offsetSegs(segs, start / SAMPLE_RATE);
+}
+
+async function transcribeSliceWithFallback(audio, start, end, modelId, opts, policy, label, depth = 0) {
+  try {
+    return await transcribeSliceRaw(audio, start, end, modelId, opts);
+  } catch (initialErr) {
+    let err = initialErr;
+    console.error(`${label} failed on ${workerDevice}:`, err);
+
+    // Critical fix: a WebGPU pipeline can load successfully and then fail only
+    // when the first shader/session actually runs. Recycling into WebGPU again
+    // repeats the same deterministic failure forever. Abandon it for this model.
+    if (workerDevice === 'webgpu') {
+      webgpuFailedModels.add(modelId);
+      setStatus(`${label} failed on WebGPU (${err.message}) — switching to WASM…`);
+      try {
+        await recycleWorker(modelId, 'wasm');
+        return await transcribeSliceRaw(audio, start, end, modelId, opts);
+      } catch (wasmErr) {
+        err = wasmErr;
+        console.error(`${label} WASM fallback failed:`, wasmErr);
+      }
+    }
+
+    setStatus(`${label} failed (${err.message}) — recycling ${workerDevice} and retrying…`);
+    await recycleWorker(modelId, 'wasm');
+
+    try {
+      return await transcribeSliceRaw(audio, start, end, modelId, opts);
+    } catch (err2) {
+      err = err2;
+      console.error(`${label} retry failed:`, err2);
+      await recycleWorker(modelId, 'wasm');
+    }
+
+    const seconds = (end - start) / SAMPLE_RATE;
+    if (depth >= policy.maxRetries || seconds <= policy.minChunkSeconds) {
+      return [{ start: start / SAMPLE_RATE, end: end / SAMPLE_RATE, text: '[…segment failed to transcribe…]' }];
+    }
+
+    const mid = findQuietBoundary(audio, Math.round((start + end) / 2), Math.round(1 * SAMPLE_RATE));
+    const splitOverlap = Math.round(Math.min(policy.overlapSeconds, 1.5) * SAMPLE_RATE);
+    const leftEnd = Math.min(end, mid + splitOverlap);
+    const rightStart = Math.max(start, mid - splitOverlap);
+    setStatus(`${label} retrying as two smaller WASM pieces…`);
+    const left = await transcribeSliceWithFallback(audio, start, leftEnd, modelId, opts, policy, `${label}a`, depth + 1);
+    const right = await transcribeSliceWithFallback(audio, rightStart, end, modelId, opts, policy, `${label}b`, depth + 1);
+    return mergeSegments(left.slice(), right);
+  }
+}
+
+async function transcribeLong(audio, modelId, opts, onChunkProgress) {
+  let policy = runtimePolicy(modelId);
+  let boundaries = computeChunkBoundaries(audio, policy.chunkSeconds, policy.overlapSeconds);
+  let totalChunks = boundaries.length;
+  const failureWindow = []; // rolling final-failure window; avoids one-blip permanent ratchet
+  let degradedLevel = 0;
+
+  for (let i = 0; i < totalChunks; i++) {
+    if (chunksSinceRestart >= policy.cadence) {
+      setStatus(`Recycling worker to release memory… (chunk ${i + 1}/${totalChunks})`);
+      await recycleWorker(modelId);
+    }
+
+    const [start, end] = boundaries[i];
+    const label = `Chunk ${i + 1}/${totalChunks}`;
+
+    if (isMostlySilence(audio, start, end, policy.silenceRmsThreshold)) {
+      onChunkProgress(i + 1, totalChunks);
+      continue;
+    }
+
+    const segs = await transcribeSliceWithFallback(audio, start, end, modelId, opts, policy, label);
+    const hardFailed = segs.some((s) => s.text.includes('segment failed'));
+    failureWindow.push(hardFailed ? 1 : 0);
+    if (failureWindow.length > 10) failureWindow.shift();
+    const recentFailures = failureWindow.reduce((sum, v) => sum + v, 0);
+
+    // Degrade only on a pattern of trouble, not a single unlucky transient blip.
+    if (recentFailures >= 2 && degradedLevel < 3 && policy.chunkSeconds > policy.minChunkSeconds) {
+      degradedLevel++;
+      policy.chunkSeconds = Math.max(policy.minChunkSeconds, Math.floor(policy.chunkSeconds * 0.75));
+      policy.overlapSeconds = Math.max(1, Math.min(policy.overlapSeconds, policy.chunkSeconds * 0.2));
+      policy.cadence = Math.max(1, Math.floor(policy.cadence * 0.75));
+      failureWindow.length = 0;
+      setStatus(`Memory pressure detected — safer mode: ~${policy.chunkSeconds}s chunks, ${policy.overlapSeconds.toFixed(1)}s overlap.`);
+    }
+
+    mergeSegments(segments, segs);
+    onChunkProgress(i + 1, totalChunks);
+    writeAutosave();
+    await new Promise((r) => setTimeout(r, 30));
+  }
+}
+
+runBtn.addEventListener('click', async () => {
+  if (!audioBuffer || dictation.active) return;
+  runBtn.disabled = true;
+  dictBtn.disabled = true;
+  const modelId = currentModelId();
+  try {
+    await ensureWorkerModel(modelId);
+    const isMultilingual = !!mlSel.value;
+    const opts = isMultilingual ? { task: 'transcribe' } : {};
+    const durationMin = audioBuffer.length / SAMPLE_RATE / 60;
+    segments = [];
+    userEdited = false;
+    renderOutput();
+    clearAutosave();
+    const policy = runtimePolicy(modelId);
+    setStatus(`Transcribing ${durationMin.toFixed(1)} min: ${policy.mode}/${workerDevice}, ~${policy.chunkSeconds}s chunks, ${policy.overlapSeconds}s overlap…`);
+    await transcribeLong(audioBuffer, modelId, opts, (done, total) => {
+      setProgress((done / total) * 100);
+      setStatus(`Chunk ${done}/${total}…`);
+      renderOutput();
+    });
+    renderOutput();
+    const failedSegments = segments.filter((s) => (s.text || '').includes('segment failed')).length;
+    if (!segments.length) {
+      setStatus('Finished, but no speech segments were produced. Try WASM engine and iPhone-safe mode.', 'err');
+    } else if (failedSegments) {
+      setStatus(`Done with ${failedSegments} failed segment${failedSegments === 1 ? '' : 's'}.`, 'err');
+    } else {
+      setStatus('Done.', 'ok');
+    }
+    setProgress(null);
+  } catch (err) {
+    console.error(err);
+    setStatus('Transcription failed: ' + err.message, 'err');
+    setProgress(null);
+  } finally {
+    runBtn.disabled = false;
+    dictBtn.disabled = false;
+  }
+});
+
+// ---------------- Live dictation ----------------
+// Mic → AudioWorklet (ScriptProcessor fallback) → main-thread VAD. A segment
+// flushes at a natural pause (~0.7s silence) or a hard cap, with 350ms of
+// pre-roll so onsets aren't clipped, then resamples to 16k and queues for the
+// same worker. Timestamps are sample-accurate from the recording clock, so
+// dictation gets the same cue/VTT treatment as files.
+
+const workletCode = `
+class CaptureProcessor extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = []; this.len = 0; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch && ch.length) {
+      this.buf.push(new Float32Array(ch));
+      this.len += ch.length;
+      if (this.len >= 2048) {
+        const out = new Float32Array(this.len);
+        let o = 0;
+        for (const b of this.buf) { out.set(b, o); o += b.length; }
+        this.port.postMessage(out, [out.buffer]);
+        this.buf = []; this.len = 0;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('capture', CaptureProcessor);
+`;
+
+const dictation = {
+  active: false,
+  stream: null,
+  ctx: null,
+  node: null,
+  srcNode: null,
+  sinkNode: null,
+  nativeRate: 48000,
+  totalSamples: 0,
+  // VAD state
+  speech: false,
+  preroll: [], prerollLen: 0,
+  segBlocks: [], segLen: 0, segStartSample: 0,
+  speechMs: 0, silenceMs: 0,
+  noiseFloor: 0.002, thr: 0.006,
+  // inference queue
+  queue: [], pumping: false, sessionId: 0,
+  modelId: null, opts: {}, maxDictSeconds: 10, cadence: 6,
+  wakeLock: null
+};
+
+function rmsOf(block) {
+  let sum = 0;
+  for (let i = 0; i < block.length; i++) sum += block[i] * block[i];
+  return Math.sqrt(sum / block.length);
+}
+
+function resampleTo16k(input, fromRate) {
+  if (fromRate === SAMPLE_RATE) return Float32Array.from(input);
+  const ratio = fromRate / SAMPLE_RATE;
+  const outLen = Math.floor(input.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * ratio;
+    const i0 = Math.floor(pos);
+    const i1 = Math.min(input.length - 1, i0 + 1);
+    const frac = pos - i0;
+    out[i] = input[i0] * (1 - frac) + input[i1] * frac;
+  }
+  return out;
+}
+
+function concatBlocks(blocks, len) {
+  const out = new Float32Array(len);
+  let o = 0;
+  for (const b of blocks) { out.set(b, o); o += b.length; }
+  return out;
+}
+
+function onMicBlock(block) {
+  const d = dictation;
+  d.totalSamples += block.length;
+  const rms = rmsOf(block);
+
+  // Adaptive noise floor: track ambient level, threshold rides above it.
+  if (rms < d.thr) d.noiseFloor = d.noiseFloor * 0.95 + rms * 0.05;
+  d.thr = Math.max(0.006, d.noiseFloor * 3.5);
+  meter.style.width = Math.min(100, (rms / 0.12) * 100) + '%';
+
+  const blockMs = block.length / d.nativeRate * 1000;
+
+  if (!d.speech) {
+    d.preroll.push(block);
+    d.prerollLen += block.length;
+    const maxPreroll = Math.round(d.nativeRate * 0.35);
+    while (d.prerollLen > maxPreroll && d.preroll.length > 1) {
+      d.prerollLen -= d.preroll[0].length;
+      d.preroll.shift();
+    }
+    if (rms >= d.thr) {
+      d.speech = true;
+      d.segBlocks = d.preroll;
+      d.segLen = d.prerollLen;
+      d.preroll = []; d.prerollLen = 0;
+      d.segStartSample = d.totalSamples - d.segLen;
+      d.speechMs = blockMs;
+      d.silenceMs = 0;
+      setDictStatus('Listening — speech detected…');
+    }
+  } else {
+    d.segBlocks.push(block);
+    d.segLen += block.length;
+    if (rms >= d.thr * 0.7) { d.speechMs += blockMs; d.silenceMs = 0; }
+    else { d.silenceMs += blockMs; }
+
+    const segSec = d.segLen / d.nativeRate;
+    if (d.silenceMs >= 700 && d.speechMs >= 500) {
+      flushDictationSegment(true);
+    } else if (segSec >= d.maxDictSeconds) {
+      flushDictationSegment(false);
+    }
+  }
+}
+
+function flushDictationSegment(endOfSpeech) {
+  const d = dictation;
+  if (!d.segLen) return;
+  let blocks = d.segBlocks;
+  let len = d.segLen;
+  const startSample = d.segStartSample;
+
+  if (endOfSpeech) {
+    // Trim trailing silence down to ~250ms so cue end times hug the speech.
+    let trimSamples = Math.round(Math.max(0, d.silenceMs - 250) / 1000 * d.nativeRate);
+    while (trimSamples > 0 && blocks.length) {
+      const last = blocks[blocks.length - 1];
+      if (last.length <= trimSamples) { trimSamples -= last.length; len -= last.length; blocks.pop(); }
+      else { blocks[blocks.length - 1] = last.subarray(0, last.length - trimSamples); len -= trimSamples; trimSamples = 0; }
+    }
+    d.speech = false;
+    d.segBlocks = []; d.segLen = 0;
+    d.speechMs = 0; d.silenceMs = 0;
+    setDictStatus('Listening…');
+  } else {
+    // Hard cap hit mid-speech: flush now, carry the last 350ms into the next
+    // segment so the merger can trim the duplicated seam words.
+    const carryTarget = Math.round(d.nativeRate * 0.35);
+    const carry = [];
+    let carryLen = 0;
+    for (let i = blocks.length - 1; i >= 0 && carryLen < carryTarget; i--) {
+      carry.unshift(blocks[i]);
+      carryLen += blocks[i].length;
+    }
+    d.segBlocks = carry.map((b) => Float32Array.from(b));
+    d.segLen = carryLen;
+    d.segStartSample = d.totalSamples - carryLen;
+    d.speechMs = 200; d.silenceMs = 0;
+  }
+
+  const native = concatBlocks(blocks, len);
+  const audio16 = resampleTo16k(native, d.nativeRate);
+  d.queue.push({ audio: audio16, absStart: startSample / d.nativeRate, session: d.sessionId });
+  pumpDictationQueue();
+}
+
+async function pumpDictationQueue() {
+  const d = dictation;
+  if (d.pumping) return;
+  d.pumping = true;
+  try {
+    while (d.queue.length) {
+      const job = d.queue.shift();
+      if (job.session !== d.sessionId) continue;
+      if (chunksSinceRestart >= d.cadence) {
+        setDictStatus('Recycling worker to release memory…');
+        await recycleWorker(d.modelId);
+      }
+      const seconds = job.audio.length / SAMPLE_RATE;
+      const timeoutMs = timeoutMsForModel(d.modelId, seconds);
+      let segs = null;
+      try {
+        segs = await transcribeChunkInWorker(job.audio, d.opts, timeoutMs);
+      } catch (err) {
+        console.error('Dictation segment failed:', err);
+        try {
+          await recycleWorker(d.modelId);
+          segs = await transcribeChunkInWorker(job.audio, d.opts, timeoutMs);
+        } catch (err2) {
+          console.error('Dictation retry failed:', err2);
+          await recycleWorker(d.modelId);
+          segs = [{ start: 0, end: seconds, text: '[unclear]' }];
+        }
+      }
+      mergeSegments(segments, offsetSegs(segs, job.absStart));
+      renderOutput();
+      writeAutosave();
+      if (d.active) setDictStatus(d.speech ? 'Listening — speech detected…' : 'Listening…');
+    }
+  } finally {
+    d.pumping = false;
+    if (!d.active && !d.queue.length) {
+      setDictStatus('Dictation stopped.', 'ok');
+      meter.style.width = '0%';
+    }
+  }
+}
+
+async function acquireWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      dictation.wakeLock = await navigator.wakeLock.request('screen');
+    }
+  } catch (e) { /* not fatal */ }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && dictation.active) acquireWakeLock();
+});
+
+async function startDictation() {
+  const d = dictation;
+  d.modelId = currentModelId();
+  dictBtn.disabled = true;
+  try {
+    // On iOS, request microphone access immediately from the button gesture.
+    // Awaiting a model download first can consume the transient user activation.
+    setDictStatus('Requesting microphone access…');
+    d.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    });
+    setDictStatus('Loading model…');
+    await ensureWorkerModel(d.modelId);
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    d.ctx = new AudioCtx();
+    await d.ctx.resume();
+    d.nativeRate = d.ctx.sampleRate;
+
+    try {
+      const blob = new Blob([workletCode], { type: 'application/javascript' });
+      const url = URL.createObjectURL(blob);
+      await d.ctx.audioWorklet.addModule(url);
+      d.node = new AudioWorkletNode(d.ctx, 'capture');
+      d.node.port.onmessage = (e) => { if (d.active) onMicBlock(e.data); };
+    } catch (err) {
+      console.warn('AudioWorklet unavailable, using ScriptProcessor:', err);
+      d.node = d.ctx.createScriptProcessor(2048, 1, 1);
+      d.node.onaudioprocess = (e) => {
+        if (d.active) onMicBlock(new Float32Array(e.inputBuffer.getChannelData(0)));
+      };
+    }
+
+    d.srcNode = d.ctx.createMediaStreamSource(d.stream);
+    d.srcNode.connect(d.node);
+    // Muted sink keeps the graph pulling without audible feedback.
+    d.sinkNode = d.ctx.createGain();
+    d.sinkNode.gain.value = 0;
+    d.node.connect(d.sinkNode);
+    d.sinkNode.connect(d.ctx.destination);
+
+    const isMultilingual = !!mlSel.value;
+    d.opts = isMultilingual ? { task: 'transcribe' } : {};
+    const policy = runtimePolicy(d.modelId);
+    d.maxDictSeconds = policy.maxDictSeconds;
+    d.cadence = policy.cadence;
+    d.sessionId++;
+    d.totalSamples = 0;
+    d.speech = false;
+    d.preroll = []; d.prerollLen = 0;
+    d.segBlocks = []; d.segLen = 0;
+    d.speechMs = 0; d.silenceMs = 0;
+    d.queue = [];
+
+    segments = [];
+    userEdited = false;
+    renderOutput();
+    clearAutosave();
+
+    d.active = true;
+    runBtn.disabled = true;
+    dictBtn.textContent = '■ Stop dictation';
+    dictBtn.classList.add('live');
+    setDictStatus('Listening…');
+    await acquireWakeLock();
+  } catch (err) {
+    console.error(err);
+    setDictStatus('Could not start dictation: ' + err.message, 'err');
+    teardownDictationAudio();
+  } finally {
+    dictBtn.disabled = false;
+  }
+}
+
+function teardownDictationAudio() {
+  const d = dictation;
+  try { if (d.srcNode) d.srcNode.disconnect(); } catch (e) {}
+  try { if (d.node) d.node.disconnect(); } catch (e) {}
+  try { if (d.sinkNode) d.sinkNode.disconnect(); } catch (e) {}
+  try { if (d.stream) d.stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+  try { if (d.ctx) d.ctx.close(); } catch (e) {}
+  try { if (d.wakeLock) { d.wakeLock.release(); d.wakeLock = null; } } catch (e) {}
+  d.srcNode = d.node = d.sinkNode = d.stream = d.ctx = null;
+}
+
+function stopDictation() {
+  const d = dictation;
+  d.active = false;
+  // Flush any in-flight speech before tearing down the graph.
+  if (d.speech && d.speechMs >= 400) flushDictationSegment(true);
+  teardownDictationAudio();
+  runBtn.disabled = !audioBuffer;
+  dictBtn.textContent = '● Start dictation';
+  dictBtn.classList.remove('live');
+  meter.style.width = '0%';
+  setDictStatus(d.queue.length || d.pumping ? 'Finishing pending segments…' : 'Dictation stopped.', d.queue.length || d.pumping ? '' : 'ok');
+  pumpDictationQueue();
+}
+
+dictBtn.addEventListener('click', () => {
+  if (dictation.active) stopDictation();
+  else startDictation();
+});
+
+// ---------------- Output actions ----------------
+
+$('copy').addEventListener('click', async () => {
+  if (!output.value) return;
+  await navigator.clipboard.writeText(output.value);
+  setStatus('Copied to clipboard.', 'ok');
+});
+
+function downloadBlob(text, mime, ext) {
+  const base = currentFile ? currentFile.name.replace(/\.[^.]+$/, '') : 'transcript';
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = base + ext;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+$('dltxt').addEventListener('click', () => {
+  const text = userEdited || !segments.length ? output.value : segmentsToPlainText(segments);
+  if (!text) return;
+  downloadBlob(text, 'text/plain', '.txt');
+});
+
+dlvttBtn.addEventListener('click', () => {
+  if (!segments.length) return;
+  downloadBlob(toVTT(segments), 'text/vtt', '.vtt');
+});
+
+dlsrtBtn.addEventListener('click', () => {
+  if (!segments.length) return;
+  downloadBlob(toSRT(segments), 'text/plain', '.srt');
+});
+
+$('restore').addEventListener('click', () => {
+  const saved = readAutosave();
+  if (!saved) {
+    setStatus('No autosaved transcript found.');
+    updateRestoreButton();
+    return;
+  }
+  segments = saved.segments || [];
+  userEdited = false;
+  if (!segments.length && saved.text) output.value = saved.text;
+  else renderOutput();
+  const when = saved.updatedAt ? new Date(saved.updatedAt).toLocaleString() : 'previous session';
+  const fileNote = saved.file ? ` from ${saved.file}` : '';
+  setStatus(`Restored autosave${fileNote} (${when}).`, 'ok');
+});
+
+$('clear').addEventListener('click', () => {
+  segments = [];
+  userEdited = false;
+  output.value = '';
+  clearAutosave();
+  setStatus('');
+  dlvttBtn.disabled = true;
+  dlsrtBtn.disabled = true;
+});
+
+updateRestoreButton();
+
+engineSel.addEventListener('change', () => {
+  if (engineSel.value === 'webgpu') webgpuFailedModels.delete(currentModelId());
+  try { if (worker) worker.terminate(); } catch (e) {}
+  worker = null;
+  workerModelId = null;
+  workerRequestedDevice = null;
+  workerDevice = 'wasm';
+  engineBadge.textContent = 'engine: —';
+  engineBadge.className = 'badge';
+  setStatus('Engine preference changed. The model will reload on the next run.');
+});
+
+// Register a minimal service worker for offline shell caching (GitHub Pages friendly)
+if ('serviceWorker' in navigator) {
+  const swCode = `
+    const CACHE = 'transcriber-shell-v6';
+    self.addEventListener('install', (e) => self.skipWaiting());
+    self.addEventListener('activate', (e) => {
+      e.waitUntil(
+        caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      );
+      self.clients.claim();
+    });
+    self.addEventListener('fetch', (e) => {
+      // Let model downloads (huggingface.co / jsdelivr) pass straight through to the browser HTTP cache.
+      if (e.request.url.includes('huggingface.co') || e.request.url.includes('jsdelivr.net')) return;
+      // Network-first for the app shell: a redeploy to the same URL must win
+      // over whatever was cached; cache is only a fallback for offline use.
+      e.respondWith(
+        fetch(e.request).then((res) => {
+          if (e.request.method === 'GET' && res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE).then((cache) => cache.put(e.request, clone));
+          }
+          return res;
+        }).catch(() => caches.match(e.request))
+      );
+    });
+  `;
+  const swBlob = new Blob([swCode], { type: 'application/javascript' });
+  const swUrl = URL.createObjectURL(swBlob);
+  navigator.serviceWorker.register(swUrl).catch(() => {});
+}
+</script>
+</body>
+</html>
