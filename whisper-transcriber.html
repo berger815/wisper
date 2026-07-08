@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transcriber</title>
+<style>
+  :root{
+    --bg:#0f1210;
+    --panel:#171b18;
+    --line:#2a302b;
+    --text:#e8ece6;
+    --dim:#8a938a;
+    --accent:#6fbf73;
+    --accent-dim:#2f4a30;
+    --warn:#d9925c;
+    --mono:'SF Mono','JetBrains Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--mono);
+    font-size:14px;
+    line-height:1.5;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    padding:24px 16px 60px;
+  }
+  .wrap{width:100%;max-width:680px;}
+  header{margin-bottom:24px;}
+  h1{
+    font-size:15px;
+    text-transform:uppercase;
+    letter-spacing:0.12em;
+    margin:0 0 4px;
+    color:var(--accent);
+    font-weight:600;
+  }
+  .sub{color:var(--dim);font-size:12px;}
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:16px;
+    margin-bottom:16px;
+  }
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  label{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:0.08em;margin-right:4px;}
+
+  select, button, input[type=file]::file-selector-button{
+    font-family:var(--mono);
+    background:#1e231f;
+    color:var(--text);
+    border:1px solid var(--line);
+    border-radius:3px;
+    padding:8px 12px;
+    font-size:13px;
+    cursor:pointer;
+  }
+  select:hover, button:hover:not(:disabled){border-color:var(--accent);}
+  button:disabled{opacity:0.4;cursor:not-allowed;}
+  button.primary{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);}
+  button.primary:hover:not(:disabled){background:var(--accent);color:#0f1210;}
+
+  input[type=file]{
+    color:var(--dim);
+    font-family:var(--mono);
+    font-size:12px;
+    width:100%;
+  }
+
+  .drop{
+    border:1px dashed var(--line);
+    border-radius:4px;
+    padding:28px 16px;
+    text-align:center;
+    color:var(--dim);
+    cursor:pointer;
+    transition:border-color .15s, color .15s;
+  }
+  .drop.active{border-color:var(--accent);color:var(--accent);}
+  .drop small{display:block;margin-top:6px;font-size:11px;}
+
+  .status{
+    font-size:12px;
+    color:var(--dim);
+    margin-top:10px;
+    min-height:16px;
+    white-space:pre-wrap;
+  }
+  .status.err{color:var(--warn);}
+  .status.ok{color:var(--accent);}
+
+  .barwrap{
+    height:4px;background:#232823;border-radius:2px;overflow:hidden;margin-top:8px;display:none;
+  }
+  .barwrap.show{display:block;}
+  .bar{height:100%;width:0%;background:var(--accent);transition:width .2s;}
+
+  textarea{
+    width:100%;
+    min-height:240px;
+    background:#101410;
+    color:var(--text);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:12px;
+    font-family:var(--mono);
+    font-size:13px;
+    line-height:1.6;
+    resize:vertical;
+  }
+  textarea:focus{outline:1px solid var(--accent);}
+
+  .actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+  .meta{font-size:11px;color:var(--dim);margin-top:6px;}
+
+  footer{color:var(--dim);font-size:11px;margin-top:30px;text-align:center;}
+  a{color:var(--accent);}
+
+  ::selection{background:var(--accent-dim);color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Transcriber</h1>
+    <div class="sub">Local, offline Whisper transcription. Nothing leaves the browser.</div>
+  </header>
+
+  <div class="panel">
+    <div class="row" style="margin-bottom:12px;">
+      <label for="model">Model</label>
+      <select id="model">
+        <option value="Xenova/whisper-tiny.en">tiny.en — fastest, ~40MB</option>
+        <option value="Xenova/whisper-base.en" selected>base.en — balanced, ~75MB</option>
+        <option value="Xenova/whisper-small.en">small.en — more accurate, ~250MB</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="lang">Multilingual</label>
+      <select id="lang">
+        <option value="en" selected>English only (.en models)</option>
+        <option value="auto">Auto-detect (use multilingual model below)</option>
+      </select>
+    </div>
+    <div class="meta">Multilingual needs a non-.en model. Switch model to a multilingual one (e.g. edit dropdown below) if your audio isn't English.</div>
+    <div class="row" style="margin-top:10px;">
+      <label for="mlmodel">Or multilingual model</label>
+      <select id="mlmodel">
+        <option value="">— none, use above —</option>
+        <option value="Xenova/whisper-tiny">tiny (multilingual)</option>
+        <option value="Xenova/whisper-base">base (multilingual)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="drop" id="drop">
+      Drop an audio file here, or click to choose
+      <small>.m4a .mp3 .wav .ogg .webm — decoded locally in your browser</small>
+      <input type="file" id="file" style="display:none;">
+    </div>
+    <div class="status" id="status"></div>
+    <div class="barwrap" id="barwrap"><div class="bar" id="bar"></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="row" style="margin-bottom:10px;">
+      <button class="primary" id="run" disabled>Transcribe</button>
+      <span class="meta" id="filename"></span>
+    </div>
+    <textarea id="output" placeholder="Transcript will appear here…" spellcheck="false"></textarea>
+    <div class="actions">
+      <button id="copy">Copy</button>
+      <button id="download">Download .txt</button>
+      <button id="clear">Clear</button>
+    </div>
+  </div>
+
+  <footer>
+    Model runs via <a href="https://github.com/xenova/transformers.js" target="_blank" rel="noopener">transformers.js</a> (WASM/WebGPU) after a one-time download, cached by the browser for offline reuse.
+  </footer>
+</div>
+
+<script type="module">
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+
+env.allowLocalModels = false;
+env.useBrowserCache = true;
+
+const $ = (id) => document.getElementById(id);
+const dropEl = $('drop');
+const fileEl = $('file');
+const statusEl = $('status');
+const barwrap = $('barwrap');
+const bar = $('bar');
+const runBtn = $('run');
+const output = $('output');
+const filenameEl = $('filename');
+const modelSel = $('model');
+const mlSel = $('mlmodel');
+
+let audioBuffer = null;
+let currentFile = null;
+
+function setStatus(msg, cls) {
+  statusEl.textContent = msg;
+  statusEl.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function setProgress(pct) {
+  if (pct == null) {
+    barwrap.classList.remove('show');
+    return;
+  }
+  barwrap.classList.add('show');
+  bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+}
+
+dropEl.addEventListener('click', () => fileEl.click());
+dropEl.addEventListener('dragover', (e) => { e.preventDefault(); dropEl.classList.add('active'); });
+dropEl.addEventListener('dragleave', () => dropEl.classList.remove('active'));
+dropEl.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropEl.classList.remove('active');
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileEl.addEventListener('change', (e) => {
+  if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+async function handleFile(file) {
+  currentFile = file;
+  filenameEl.textContent = file.name + ' (' + (file.size / 1024 / 1024).toFixed(1) + ' MB)';
+  setStatus('Decoding audio…');
+  runBtn.disabled = true;
+  try {
+    audioBuffer = await decodeAudio(file);
+    setStatus(`Decoded: ${audioBuffer.length} samples @ 16kHz mono (${(audioBuffer.length/16000).toFixed(1)}s)`, 'ok');
+    runBtn.disabled = false;
+  } catch (err) {
+    console.error(err);
+    setStatus('Could not decode this file: ' + err.message, 'err');
+  }
+}
+
+// Decode any browser-supported audio format to 16kHz mono Float32Array
+async function decodeAudio(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AudioCtx();
+  const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+  const targetRate = 16000;
+
+  if (decoded.sampleRate === targetRate && decoded.numberOfChannels === 1) {
+    ctx.close();
+    return decoded.getChannelData(0).slice();
+  }
+
+  const offlineCtx = new OfflineAudioContext(
+    1,
+    Math.ceil(decoded.duration * targetRate),
+    targetRate
+  );
+  const src = offlineCtx.createBufferSource();
+  src.buffer = decoded;
+  src.connect(offlineCtx.destination);
+  src.start(0);
+  const rendered = await offlineCtx.startRendering();
+  ctx.close();
+  return rendered.getChannelData(0).slice();
+}
+
+function currentModelId() {
+  return mlSel.value ? mlSel.value : modelSel.value;
+}
+
+// Cap WASM to a single thread — cross-origin isolation (required for multi-thread)
+// usually isn't available on GitHub Pages, and forcing single-thread avoids some
+// mobile Safari WASM memory-growth edge cases.
+if (env.backends && env.backends.onnx && env.backends.onnx.wasm) {
+  env.backends.onnx.wasm.numThreads = 1;
+}
+
+// ---- Inference runs in a dedicated Worker, periodically recycled ----
+// WASM linear memory only ever grows within a page/worker's lifetime — the
+// runtime can't hand memory back to the OS mid-session. Chunking bounds the
+// PEAK memory of any single inference call, but repeated chunks still
+// accumulate allocations over a long transcription. The only real fix is
+// terminating the worker (which fully frees its heap) and recreating it,
+// reloading the model from the browser's HTTP cache (fast after first run).
+const workerCode = `
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+env.allowLocalModels = false;
+env.useBrowserCache = true;
+if (env.backends && env.backends.onnx && env.backends.onnx.wasm) {
+  env.backends.onnx.wasm.numThreads = 1;
+}
+let transcriber = null;
+
+self.onmessage = async (e) => {
+  const { type } = e.data;
+  if (type === 'load') {
+    const { modelId } = e.data;
+    try {
+      transcriber = await pipeline('automatic-speech-recognition', modelId, {
+        progress_callback: (p) => {
+          if (p.status === 'progress' && p.total) {
+            self.postMessage({ type: 'progress', pct: (p.loaded / p.total) * 100, file: p.file || '' });
+          }
+        }
+      });
+      self.postMessage({ type: 'loaded' });
+    } catch (err) {
+      self.postMessage({ type: 'error', message: err.message });
+    }
+  } else if (type === 'transcribe') {
+    const { audio, opts } = e.data;
+    try {
+      const result = await transcriber(audio, opts || {});
+      self.postMessage({ type: 'result', text: (result.text || '').trim() });
+    } catch (err) {
+      self.postMessage({ type: 'error', message: err.message });
+    }
+  }
+};
+`;
+
+let worker = null;
+let workerModelId = null;
+let chunksSinceRestart = 0;
+
+function spawnWorker() {
+  const blob = new Blob([workerCode], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  return new Worker(url, { type: 'module' });
+}
+
+function loadModelInWorker(modelId) {
+  return new Promise((resolve, reject) => {
+    const handler = (e) => {
+      const d = e.data;
+      if (d.type === 'progress') {
+        setProgress(d.pct);
+        setStatus(`Downloading ${modelId}: ${d.file} ${d.pct.toFixed(0)}%`);
+      } else if (d.type === 'loaded') {
+        worker.removeEventListener('message', handler);
+        setProgress(null);
+        resolve();
+      } else if (d.type === 'error') {
+        worker.removeEventListener('message', handler);
+        reject(new Error(d.message));
+      }
+    };
+    worker.addEventListener('message', handler);
+    worker.postMessage({ type: 'load', modelId });
+  });
+}
+
+function transcribeChunkInWorker(audioSlice, opts, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      worker.removeEventListener('message', handler);
+      reject(new Error(`timed out after ${Math.round(timeoutMs / 1000)}s`));
+    }, timeoutMs);
+    const handler = (e) => {
+      const d = e.data;
+      if (d.type === 'result') {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        worker.removeEventListener('message', handler);
+        resolve(d.text);
+      } else if (d.type === 'error') {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        worker.removeEventListener('message', handler);
+        reject(new Error(d.message));
+      }
+    };
+    worker.addEventListener('message', handler);
+    // Copy before transfer — audioSlice is a subarray view sharing the buffer
+    // with the full recording; transferring it directly would detach and
+    // corrupt that shared buffer for subsequent chunks.
+    const copy = Float32Array.from(audioSlice);
+    worker.postMessage({ type: 'transcribe', audio: copy, opts }, [copy.buffer]);
+  });
+}
+
+// Restart cadence scales with model size — bigger model, heavier per-chunk
+// footprint, more frequent recycling.
+function restartCadence(modelId) {
+  if (modelId.includes('small')) return 3;
+  if (modelId.includes('base')) return 6;
+  return 10; // tiny
+}
+
+// Peak memory per chunk scales with model size too, independent of the
+// restart cadence above (cadence controls CUMULATIVE growth; this controls
+// the PEAK of a single call). small.en needs a noticeably smaller window or
+// it can blow memory on a single chunk regardless of how often we recycle.
+function chunkSecondsForModel(modelId) {
+  if (modelId.includes('small')) return 12;
+  if (modelId.includes('base')) return 20;
+  return 25; // tiny
+}
+
+// A stuck/crashed worker (e.g. iOS silently killed it for memory) otherwise
+// hangs the whole run forever with no feedback. Bound each chunk's wait time
+// so we can detect that and recover instead of just sitting there.
+function timeoutMsForModel(modelId, chunkSeconds) {
+  const perSecond = modelId.includes('small') ? 6000 : modelId.includes('base') ? 3500 : 2500;
+  return chunkSeconds * perSecond + 20000;
+}
+
+async function ensureWorkerModel(modelId) {
+  if (worker && workerModelId === modelId) return;
+  if (worker) worker.terminate();
+  setStatus(`Loading model ${modelId}…`);
+  worker = spawnWorker();
+  await loadModelInWorker(modelId);
+  workerModelId = modelId;
+  chunksSinceRestart = 0;
+}
+
+// Find a low-energy (quiet) point near a target sample index, within a
+// search radius, so chunk cuts land in silence/pauses rather than mid-word.
+// Fixed-length cuts cost real accuracy at every single boundary since
+// Whisper has no context of a word that got sliced in half.
+function findQuietBoundary(audio, targetIndex, searchRadiusSamples) {
+  const start = Math.max(0, targetIndex - searchRadiusSamples);
+  const end = Math.min(audio.length, targetIndex + searchRadiusSamples);
+  if (end <= start) return targetIndex;
+  const blockSize = 320; // 20ms @ 16kHz
+  let bestIdx = targetIndex;
+  let bestEnergy = Infinity;
+  for (let i = start; i < end; i += blockSize) {
+    const blockEnd = Math.min(end, i + blockSize);
+    let sum = 0;
+    for (let j = i; j < blockEnd; j++) sum += Math.abs(audio[j]);
+    const energy = sum / (blockEnd - i);
+    if (energy < bestEnergy) {
+      bestEnergy = energy;
+      bestIdx = i + ((blockEnd - i) >> 1);
+    }
+  }
+  return bestIdx;
+}
+
+function computeChunkBoundaries(audio, chunkSeconds) {
+  const chunkSize = chunkSeconds * SAMPLE_RATE;
+  const searchRadius = Math.round(1.5 * SAMPLE_RATE); // look +/-1.5s for a quiet spot
+  const minChunk = SAMPLE_RATE; // never produce a <1s sliver
+  const boundaries = [];
+  let start = 0;
+  while (start < audio.length) {
+    const nominalEnd = start + chunkSize;
+    let end;
+    if (nominalEnd >= audio.length) {
+      end = audio.length;
+    } else {
+      end = findQuietBoundary(audio, nominalEnd, searchRadius);
+      if (end <= start + minChunk) end = nominalEnd; // guard against degenerate cuts
+    }
+    boundaries.push([start, end]);
+    start = end;
+  }
+  return boundaries;
+}
+
+// Process long audio as sequential, silence-aligned chunks instead of
+// handing the whole buffer to the pipeline at once, and recycle the worker
+// periodically so memory doesn't climb unbounded across a long recording.
+const SAMPLE_RATE = 16000;
+
+async function transcribeLong(audio, modelId, opts, onChunkProgress) {
+  const chunkSeconds = chunkSecondsForModel(modelId);
+  const cadence = restartCadence(modelId);
+  const timeoutMs = timeoutMsForModel(modelId, chunkSeconds);
+  const boundaries = computeChunkBoundaries(audio, chunkSeconds);
+  const totalChunks = boundaries.length;
+  const parts = [];
+  for (let i = 0; i < totalChunks; i++) {
+    if (chunksSinceRestart >= cadence) {
+      setStatus(`Recycling worker to release memory… (chunk ${i + 1}/${totalChunks})`);
+      worker.terminate();
+      worker = spawnWorker();
+      await loadModelInWorker(modelId);
+      chunksSinceRestart = 0;
+    }
+    const [start, end] = boundaries[i];
+    const slice = audio.subarray(start, end);
+    let text = '';
+    try {
+      text = await transcribeChunkInWorker(slice, opts, timeoutMs);
+      chunksSinceRestart++;
+    } catch (err) {
+      // A single chunk crashing or hanging (e.g. iOS silently killed the
+      // worker for memory) used to take the ENTIRE transcription down with
+      // it. Instead: recycle the worker and keep going, marking only this
+      // chunk as lost rather than losing everything after it.
+      console.error('Chunk failed:', err);
+      setStatus(`Chunk ${i + 1}/${totalChunks} failed (${err.message}) — recovering…`);
+      try { worker.terminate(); } catch (e2) { /* already dead */ }
+      worker = spawnWorker();
+      await loadModelInWorker(modelId); // if this also fails, it throws and we stop for real
+      chunksSinceRestart = 0;
+      text = '[…segment failed to transcribe…]';
+    }
+    if (text) parts.push(text);
+    onChunkProgress(i + 1, totalChunks, parts.join(' '));
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  return parts.join(' ');
+}
+
+runBtn.addEventListener('click', async () => {
+  if (!audioBuffer) return;
+  runBtn.disabled = true;
+  const modelId = currentModelId();
+  try {
+    await ensureWorkerModel(modelId);
+    const isMultilingual = !!mlSel.value;
+    const opts = isMultilingual ? { task: 'transcribe' } : {};
+    const durationMin = audioBuffer.length / SAMPLE_RATE / 60;
+    output.value = '';
+    setStatus(`Transcribing ${durationMin.toFixed(1)} min of audio in ~${chunkSecondsForModel(modelId)}s chunks…`);
+    const finalText = await transcribeLong(audioBuffer, modelId, opts, (done, total, partial) => {
+      setProgress((done / total) * 100);
+      setStatus(`Chunk ${done}/${total}…`);
+      output.value = partial;
+    });
+    output.value = finalText;
+    setStatus('Done.', 'ok');
+    setProgress(null);
+  } catch (err) {
+    console.error(err);
+    setStatus('Transcription failed: ' + err.message, 'err');
+    setProgress(null);
+  } finally {
+    runBtn.disabled = false;
+  }
+});
+
+$('copy').addEventListener('click', async () => {
+  if (!output.value) return;
+  await navigator.clipboard.writeText(output.value);
+  setStatus('Copied to clipboard.', 'ok');
+});
+
+$('download').addEventListener('click', () => {
+  if (!output.value) return;
+  const base = currentFile ? currentFile.name.replace(/\.[^.]+$/, '') : 'transcript';
+  const blob = new Blob([output.value], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = base + '.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+$('clear').addEventListener('click', () => {
+  output.value = '';
+  setStatus('');
+});
+
+// Register a minimal service worker for offline shell caching (GitHub Pages friendly)
+if ('serviceWorker' in navigator) {
+  const swCode = `
+    const CACHE = 'transcriber-shell-v2';
+    self.addEventListener('install', (e) => self.skipWaiting());
+    self.addEventListener('activate', (e) => {
+      e.waitUntil(
+        caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      );
+      self.clients.claim();
+    });
+    self.addEventListener('fetch', (e) => {
+      // Let model downloads (huggingface.co / jsdelivr) pass straight through to the browser HTTP cache.
+      if (e.request.url.includes('huggingface.co') || e.request.url.includes('jsdelivr.net')) return;
+      // Network-first for the app shell itself: a redeploy to the same URL must
+      // always win over whatever was cached from a previous version. Cache is
+      // only a fallback for genuinely offline use.
+      e.respondWith(
+        fetch(e.request).then((res) => {
+          if (e.request.method === 'GET' && res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE).then((cache) => cache.put(e.request, clone));
+          }
+          return res;
+        }).catch(() => caches.match(e.request))
+      );
+    });
+  `;
+  const swBlob = new Blob([swCode], { type: 'application/javascript' });
+  const swUrl = URL.createObjectURL(swBlob);
+  navigator.serviceWorker.register(swUrl).catch(() => {});
+}
+</script>
+</body>
+</html>
